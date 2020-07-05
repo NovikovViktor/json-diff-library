@@ -1,16 +1,13 @@
 package process;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.*;
 import data.DiffDataDto;
 import data.OperationType;
 import data.ParseWay;
 
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * @author novikov_vi on 03.07.2020
@@ -30,15 +27,33 @@ public class JsonDiff {
     /**
      * Наименование поля идентификатора
      **/
-    private static final String ID_FIELD_NAME = "id";
+    private static String idFieldName = "id";
 
-    private static ParseWay parseWay = ParseWay.STRAIGHT;
+    private static ParseWay parseWay;
 
-    public static String diffJson(String leftJson, String rightJson) {
+    public static List<DiffDataDto> diffJsonString(String leftJson, String rightJson, String idName) {
+        idFieldName = idName;
+        return diffJsonString(leftJson, rightJson);
+    }
+
+    public static List<DiffDataDto> diffJsonString(String leftJson, String rightJson) {
 
         List<DiffDataDto> resultList = new ArrayList<>();
 
+        JsonObject leftJsonObject = stringToJson(leftJson);
+        JsonObject rightJsonObject = stringToJson(rightJson);
 
+        //TODO(вынести часть методов в другой класс с protected доступом)
+        parseWay = ParseWay.STRAIGHT;
+        check(leftJsonObject, rightJsonObject, PATH_DELIMITER, resultList);
+        parseWay = ParseWay.REVERSE;
+        check(rightJsonObject, leftJsonObject, PATH_DELIMITER, resultList);
+        return resultList;
+    }
+
+    private static JsonObject stringToJson(String str) {
+        str = str == null ? EMPTY_JSON : str;
+        return JsonParser.parseString(str).getAsJsonObject();
     }
 
     private static void check(JsonObject leftJsonObject, JsonObject rightJsonObject, String path, List<DiffDataDto> resultList) {
@@ -53,33 +68,38 @@ public class JsonDiff {
 
     private static void checkTypeJsonElement(JsonElement leftJsonElement, JsonElement rightJsonElement, String path, String key, List<DiffDataDto> resultList) {
         if (rightJsonElement.isJsonArray()) {
-
-            Optional<JsonArray> leftJsonArray = getJsonArray(leftJsonElement);
-            Optional<JsonArray> rightJsonArray = getJsonArray(rightJsonElement);
-
-            Process.jsonArrayProcess(leftJsonArray.orElse(null), rightJsonArray.get(), path, key, resultList);
+            JsonHandler.jsonArray(leftJsonElement, rightJsonElement, path, key, resultList);
 
         } else if (rightJsonElement.isJsonPrimitive()) {
-
-            Process.jsonPrimitiveProcess(leftJsonElement, rightJsonElement, path, key, resultList);
+            JsonHandler.jsonPrimitive(leftJsonElement, rightJsonElement, path, key, resultList);
 
         } else if (rightJsonElement.isJsonObject()) {
-
+            JsonHandler.jsonObject(leftJsonElement, rightJsonElement, path, key, resultList);
 
         }
     }
 
-
     private static JsonElement getJsonElementByKey(JsonObject jsonObject, String key) {
-        return jsonObject.get(key);
+        if (jsonObject != null) {
+            return jsonObject.get(key);
+        }
+        return null;
     }
 
-    private static Optional<JsonArray> getJsonArray(JsonElement jsonElement) {
+    private static JsonArray getJsonArray(JsonElement jsonElement) {
         JsonArray jsonArray = null;
         if (jsonElement != null) {
             jsonArray = jsonElement.getAsJsonArray();
         }
-        return Optional.ofNullable(jsonArray);
+        return jsonArray;
+    }
+
+    private static JsonObject getJsonObject(JsonElement jsonElement) {
+        JsonObject jsonObject = null;
+        if (jsonElement != null) {
+            jsonObject = jsonElement.getAsJsonObject();
+        }
+        return jsonObject;
     }
 
     private static String checkOperationByWay() {
@@ -93,8 +113,9 @@ public class JsonDiff {
     }
 
     private static List<JsonObject> getJsonObjectList(JsonArray jsonArray) {
-        return Stream
-                .of(jsonArray)
+        //TODO(рассмотреть возможность параллельного стрима)
+        return StreamSupport
+                .stream(jsonArray.spliterator(), false)
                 .map(JsonElement::getAsJsonObject)
                 .collect(Collectors.toList());
     }
@@ -124,9 +145,17 @@ public class JsonDiff {
                 .build();
     }
 
-    private static class Process {
+    private static class JsonHandler {
 
-        private static void jsonPrimitiveProcess(JsonElement leftJsonElement, JsonElement rightJsonElement, String path, String key, List<DiffDataDto> resultList) {
+        private static void jsonObject(JsonElement leftJsonElement, JsonElement rightJsonElement, String path, String key, List<DiffDataDto> resultList) {
+
+            JsonObject leftJsonObject = getJsonObject(leftJsonElement);
+            JsonObject rightJsonObject = getJsonObject(rightJsonElement);
+
+            check(leftJsonObject, rightJsonObject, path + key + PATH_DELIMITER, resultList);
+        }
+
+        private static void jsonPrimitive(JsonElement leftJsonElement, JsonElement rightJsonElement, String path, String key, List<DiffDataDto> resultList) {
             Object leftValue = null;
 
             if (leftJsonElement != null && leftJsonElement.isJsonPrimitive()) {
@@ -135,7 +164,7 @@ public class JsonDiff {
 
             Object rightValue = getJsonPrimitive(rightJsonElement.getAsJsonPrimitive());
 
-            if (parseWay == ParseWay.STRAIGHT && rightValue != leftValue && leftValue != null) {
+            if (parseWay.equals(ParseWay.STRAIGHT) && !rightValue.equals(leftValue) && leftValue != null) {
                 resultList.add(
                         formResult(OperationType.REPLACE.op, path + key, rightValue, leftValue)
                 );
@@ -146,7 +175,11 @@ public class JsonDiff {
             }
         }
 
-        private static void jsonArrayProcess(JsonArray leftJsonArray, JsonArray rightJsonArray, String path, String key, List<DiffDataDto> resultList) {
+        private static void jsonArray(JsonElement leftJsonElement, JsonElement rightJsonElement, String path, String key, List<DiffDataDto> resultList) {
+
+            JsonArray leftJsonArray = getJsonArray(leftJsonElement);
+            JsonArray rightJsonArray = getJsonArray(rightJsonElement);
+
             List<JsonObject> leftJsonObjectList = null;
             List<JsonObject> rightJsonObjectList = getJsonObjectList(rightJsonArray);
 
@@ -156,13 +189,14 @@ public class JsonDiff {
 
             for (JsonObject rightJsonObject : rightJsonObjectList) {
 
-                JsonElement rightId = rightJsonObject.get(ID_FIELD_NAME);
+                JsonElement rightId = rightJsonObject.get(idFieldName);
                 JsonObject leftObject = null;
                 if (leftJsonObjectList != null) {
                     //TODO("убрать в метод")
+
                     leftObject = leftJsonObjectList
                             .stream()
-                            .filter(it -> rightId == it.get(ID_FIELD_NAME))
+                            .filter(it -> rightId.equals(it.get(idFieldName)))
                             .findFirst()
                             .orElse(null);
                 }
@@ -171,10 +205,10 @@ public class JsonDiff {
                     check(leftObject, rightJsonObject, path + key + PATH_DELIMITER, resultList);
                 } else {
                     for (String rightKey : rightJsonObject.keySet()) {
-                        JsonElement rightElement = getJsonElementByKey(rightJsonObject, rightKey);
 
+                        JsonElement rightElement = getJsonElementByKey(rightJsonObject, rightKey);
                         //TODO("убрать в метод")
-                        Object value;
+                        Object value = null;
                         if (rightElement.isJsonPrimitive()) {
                             value = getJsonPrimitive(rightElement.getAsJsonPrimitive());
                         } else if (rightElement.isJsonObject()) {
