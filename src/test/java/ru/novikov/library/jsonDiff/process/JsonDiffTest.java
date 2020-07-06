@@ -1,13 +1,14 @@
-package process;
+package ru.novikov.library.jsonDiff.process;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import data.DiffDataDto;
 import org.junit.jupiter.api.Test;
+import ru.novikov.library.jsonDiff.data.DiffDataDto;
 
 import java.util.List;
 
 /**
+ * Тестирование работы функции выполняющей сравнение json
  * @author novikov_vi on 05.07.2020
  */
 public class JsonDiffTest {

@@ -1,4 +1,4 @@
-package data;
+package ru.novikov.library.jsonDiff.data;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -8,7 +8,7 @@ import lombok.Getter;
  */
 @Builder
 @Getter
-public class DiffDataDto {
+public final class DiffDataDto {
     private final String operation;
     private final String path;
     private final Object value;
